@@ -19,27 +19,30 @@ webui: webui/node_modules
 webui-dev: webui/node_modules
 	cd webui && npm run dev
 
+# CGO_ENABLED=0 is required: the go-m1cpu cgo dep segfaults at init() on
+# arm64 macOS with current Go; disabling cgo makes it use the pure-Go path
+# and the binary boots cleanly. PDF (go-pdf/fpdf) and the UI are pure-Go.
 build: webui
 	@echo "Building $(BINARY)..."
 	@mkdir -p $(BUILD_DIR)
-	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) ./cmd/xalgorix/
+	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY) ./cmd/xalgorix/
 	@echo "Built: $(BUILD_DIR)/$(BINARY)"
 
 run:
-	go run ./cmd/xalgorix/ $(ARGS)
+	CGO_ENABLED=0 go run ./cmd/xalgorix/ $(ARGS)
 
 clean:
 	rm -rf $(BUILD_DIR)
 	go clean
 
 test:
-	go test ./... -v
+	CGO_ENABLED=0 go test ./... -v
 
 test-cover:
-	go test ./... -cover
+	CGO_ENABLED=0 go test ./... -cover
 
 test-race:
-	go test ./... -race
+	CGO_ENABLED=0 go test ./... -race
 
 test-ci:
 	go test ./...
