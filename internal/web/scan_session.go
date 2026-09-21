@@ -780,7 +780,7 @@ func firstSelectedPhase(phases []int) int {
 	}
 	first := 0
 	for _, phase := range phases {
-		if phase < 1 || phase > 22 {
+		if phase < 1 || phase > 23 {
 			continue
 		}
 		if first == 0 || phase < first {
@@ -794,7 +794,7 @@ func firstSelectedPhase(phases []int) int {
 }
 
 func phaseAllowed(phases []int, phase int) bool {
-	if phase < 1 || phase > 22 {
+	if phase < 1 || phase > 23 {
 		return false
 	}
 	if len(phases) == 0 {
@@ -813,7 +813,9 @@ func isReconReportOnlyPhaseSelection(phases []int) bool {
 		return false
 	}
 	for _, phase := range phases {
-		if phase != 1 && phase != 22 {
+		// Phase 23 (OWASP assessment) is a reporting option, not a
+		// vulnerability-testing phase, so it does not break recon-only scope.
+		if phase != 1 && phase != 22 && phase != 23 {
 			return false
 		}
 	}
@@ -962,7 +964,7 @@ func parsePhaseMention(text string) int {
 	if _, err := fmt.Sscanf(match[1], "%d", &phase); err != nil {
 		return 0
 	}
-	if phase < 1 || phase > 22 {
+	if phase < 1 || phase > 23 {
 		return 0
 	}
 	return phase

@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils";
 
-// Xalgorix 22-phase methodology. The backend reports `current_phase` and
-// `phases` as 1-based ids into this list, and the New Scan form lets the
-// operator opt into any subset. Keeping a single source of truth here
-// prevents the dashboard from drifting out of sync with the scan form.
+// Xalgorix 22-phase methodology plus the optional OWASP Top 10 assessment.
+// The backend reports `current_phase` and `phases` as 1-based ids into this
+// list, and the New Scan form lets the operator opt into any subset. Keeping
+// a single source of truth here prevents the dashboard from drifting out of
+// sync with the scan form.
 export const PHASES: { id: number; name: string }[] = [
   { id: 1, name: "Reconnaissance" },
   { id: 2, name: "Manual Vuln Discovery" },
@@ -27,6 +28,7 @@ export const PHASES: { id: number; name: string }[] = [
   { id: 20, name: "Exploit Verification" },
   { id: 21, name: "Zero-Day Discovery" },
   { id: 22, name: "Final Report" },
+  { id: 23, name: "OWASP Top 10" },
 ];
 
 export function PhaseProgress({

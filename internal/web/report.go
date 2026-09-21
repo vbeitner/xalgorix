@@ -524,6 +524,7 @@ var methodologyPhaseNames = map[int]string{
 	20: "Exploit Verification",
 	21: "Novel Vulnerability Discovery",
 	22: "Final Report",
+	23: "OWASP Top 10 Assessment",
 }
 
 // generateReport creates a professional PDF pentest report for a scan.
@@ -891,7 +892,7 @@ func (s *Server) generateReport(scan *ScanRecord) (string, error) {
 	// Determine which phases were executed
 	executedPhases := scan.Phases
 	allPhases := len(executedPhases) == 0 // empty = all phases
-	for phaseNum := 1; phaseNum <= 22; phaseNum++ {
+	for phaseNum := 1; phaseNum <= 23; phaseNum++ {
 		name, ok := methodologyPhaseNames[phaseNum]
 		if !ok {
 			continue

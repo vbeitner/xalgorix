@@ -348,6 +348,7 @@ export const api = {
     }),
 
   reportUrl: (scanId: string) => `/api/report/${scanId}`,
+  owaspReportUrl: (scanId: string) => `/api/owasp-report/${scanId}`,
 
   legacyImportStatus: () =>
     http<{ count: number; dismissed: boolean }>("/api/legacy-import/status"),

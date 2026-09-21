@@ -72,6 +72,7 @@ import {
   Pause,
   Trash2,
   ShieldAlert,
+  Shield,
   Terminal,
   Sparkles,
   ListChecks,
@@ -252,6 +253,11 @@ export default function ScanDetailPage() {
           <Button variant="outline" size="sm" asChild>
             <a href={api.reportUrl(scan.id)} target="_blank" rel="noreferrer">
               <Download className="mr-1 h-4 w-4" /> Report
+            </a>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <a href={api.owaspReportUrl(scan.id)} target="_blank" rel="noreferrer">
+              <Shield className="mr-1 h-4 w-4" /> OWASP Report
             </a>
           </Button>
           {canStart && (

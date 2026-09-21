@@ -242,6 +242,21 @@ func buildPhaseFilterInstruction(phases []int) string {
 		instruction += fmt.Sprintf("- Phase %d: %s\n", p, name)
 	}
 	instruction += "\n**All other phases are OUT OF SCOPE for this scan. Skip them entirely.**\n"
+	if phaseAllowed(phases, 23) {
+		instruction += `
+	## OWASP TOP 10 ASSESSMENT (MANDATORY)
+	This scan includes an OWASP Top 10 (2021) assessment. For EVERY confirmed
+	vulnerability you report via report_vulnerability, set the 'owasp' parameter
+	to the matching category ID:
+	- A01 Broken Access Control | A02 Cryptographic Failures | A03 Injection
+	- A04 Insecure Design | A05 Security Misconfiguration | A06 Vulnerable and Outdated Components
+	- A07 Identification and Authentication Failures | A08 Software and Data Integrity Failures
+	- A09 Security Logging and Monitoring Failures | A10 Server-Side Request Forgery
+	Leave 'owasp' empty only when a finding genuinely maps to no category —
+	unmapped findings still appear under "Other Findings" in the OWASP report,
+	but they cannot be grouped by Top 10 category.
+	`
+	}
 	if isReconReportOnlyPhaseSelection(phases) {
 		instruction += `
 ## RECONNAISSANCE-ONLY SCOPE

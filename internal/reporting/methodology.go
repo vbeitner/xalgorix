@@ -1,7 +1,8 @@
 package reporting
 
-// MethodologyPhaseNames maps each phase number in the Xalgorix 22-phase
-// methodology to its display name. The map is the single source of truth
+// MethodologyPhaseNames maps each phase number to its display name in the
+// Xalgorix methodology (22 core phases plus the optional OWASP Top 10
+// assessment). The map is the single source of truth
 // consumed by both the PDF report and the autonomous-mode phase-filter
 // instruction builder in internal/web.
 var MethodologyPhaseNames = map[int]string{
@@ -27,6 +28,7 @@ var MethodologyPhaseNames = map[int]string{
 	20: "Exploit Verification",
 	21: "Novel Vulnerability Discovery",
 	22: "Final Report",
+	23: "OWASP Top 10 Assessment",
 }
 
 // OWASPCategories lists the OWASP Top 10 (2021) categories in canonical

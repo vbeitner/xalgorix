@@ -665,6 +665,7 @@ var dashboardRoutes = []string{
 	"/api/upload-source",
 	"/uploads/logos/",
 	"/api/report/",
+	"/api/owasp-report/",
 	"/api/settings/rate-limit",
 	"/api/settings/agentmail",
 	"/api/settings/llm",
@@ -1099,6 +1100,7 @@ func (s *Server) Start() error {
 	_ = os.MkdirAll(logosDir, 0700)
 	mux.Handle("/uploads/logos/", http.StripPrefix("/uploads/logos/", http.FileServer(http.Dir(logosDir))))
 	mux.HandleFunc("/api/report/", s.handleDownloadReport)
+	mux.HandleFunc("/api/owasp-report/", s.handleDownloadOWASPReport)
 	mux.HandleFunc("/api/settings/rate-limit", s.handleRateLimit)
 	mux.HandleFunc("/api/settings/agentmail", s.handleAgentMailSettings)
 	mux.HandleFunc("/api/settings/llm", s.handleLLMSettings)

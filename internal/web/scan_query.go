@@ -3,7 +3,10 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -158,6 +161,45 @@ func toReportingScan(scan *ScanRecord) *pdfreport.Scan {
 		Vulns:       vulns,
 		Events:      events,
 	}
+}
+
+// handleDownloadOWASPReport serves the OWASP Top 10 (2021) HTML report for a
+// scan, grouping findings into categories via InferMappings and showing each
+// finding's exploit-verification status.
+func (s *Server) handleDownloadOWASPReport(w http.ResponseWriter, r *http.Request) {
+	scanID := strings.TrimPrefix(r.URL.Path, "/api/owasp-report/")
+	// Normalise: strip any path separators so a crafted /api/owasp-report/../etc/passwd
+	// can never escape the scan dir.
+	scanID = filepath.Base(scanID)
+	if scanID == "" || scanID == "." || scanID == "/" {
+		http.Error(w, "scan ID required", http.StatusBadRequest)
+		return
+	}
+
+	_, rec := s.findScanByID(scanID)
+	if rec == nil {
+		s.instancesMu.RLock()
+		inst := s.instances[scanID]
+		s.instancesMu.RUnlock()
+		if inst != nil {
+			rec = s.scanRecordFromInstance(inst)
+		}
+	}
+	if rec == nil {
+		http.Error(w, "scan not found", http.StatusNotFound)
+		return
+	}
+
+	reader, err := pdfreport.DownloadOWASPReport(toReportingScan(rec))
+	if err != nil {
+		log.Printf("OWASP report generation error for %s: %v", scanID, err)
+		http.Error(w, "failed to generate OWASP report: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"xalgorix_owasp_%s.html\"", scanID))
+	_, _ = io.Copy(w, reader)
 }
 
 // generateReportAt generates a PDF report, saving it to a specific directory.

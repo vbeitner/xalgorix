@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -61,14 +62,16 @@ func DownloadOWASPReport(scan *Scan) (io.Reader, error) {
 // owaspVulnView is a template-safe projection of a finding: every string
 // is pre-HTML-escaped so the report never injects raw user/agent content.
 type owaspVulnView struct {
-	Title       string
-	Severity    string
-	SeverityCSS string
-	Endpoint    string
-	Description string
-	Remediation string
-	CVE         string
-	CWE         string
+	Title            string
+	Severity         string
+	SeverityCSS      string
+	Endpoint         string
+	Description      string
+	Remediation      string
+	CVE              string
+	CWE              string
+	Verified         bool
+	VerificationText string
 }
 
 // owaspCategoryView is one OWASP Top 10 bucket in canonical order.
@@ -84,24 +87,30 @@ type owaspReportData struct {
 	ScanID        string
 	Target        string
 	TotalFindings int
+	VerifiedCount int
 	CriticalCount int
 	HighCount     int
 	MediumCount   int
 	LowCount      int
-	Unmatched     int
-	Categories    []owaspCategoryView
+	Unmatched      int
+	UnmatchedVulns []owaspVulnView
+	Categories     []owaspCategoryView
 }
 
 // buildOWASPReportData groups scan findings into OWASP Top 10 buckets via
 // InferMappings and pre-escapes every rendered string.
 func buildOWASPReportData(scan *Scan) (*owaspReportData, error) {
+	// Normalize the agent-provided category ID to the canonical "A0x" form
+	// (the agent may emit "A03:2021" or similar suffixed variants).
 	buckets := make(map[string][]Vuln, len(OWASPCategories))
 	var unmatched []Vuln
 	for _, v := range scan.Vulns {
 		m := InferMappings(v)
 		if m.OWASP != "" {
-			buckets[m.OWASP] = append(buckets[m.OWASP], v)
-			continue
+			if canon := normalizeOWASPID(m.OWASP); canon != "" {
+				buckets[canon] = append(buckets[canon], v)
+				continue
+			}
 		}
 		unmatched = append(unmatched, v)
 	}
@@ -112,18 +121,39 @@ func buildOWASPReportData(scan *Scan) (*owaspReportData, error) {
 		Target:      html.EscapeString(scan.Target),
 	}
 
+	// Render findings that did not map to any OWASP Top 10 category so they
+	// are never silently dropped from the report.
+	for _, v := range unmatched {
+		verified, verificationText := owaspVerificationStatus(v)
+		data.UnmatchedVulns = append(data.UnmatchedVulns, owaspVulnView{
+			Title:            html.EscapeString(v.Title),
+			Severity:         html.EscapeString(v.Severity),
+			SeverityCSS:      html.EscapeString(strings.ToLower(v.Severity)),
+			Endpoint:         html.EscapeString(v.Endpoint),
+			Description:      html.EscapeString(v.Description),
+			Remediation:      html.EscapeString(v.Remediation),
+			CVE:              html.EscapeString(v.CVE),
+			CWE:              html.EscapeString(v.CWE),
+			Verified:         verified,
+			VerificationText: html.EscapeString(verificationText),
+		})
+	}
+
 	for _, cat := range OWASPCategories {
 		view := owaspCategoryView{ID: cat.ID, Name: cat.Name}
 		for _, v := range buckets[cat.ID] {
+			verified, verificationText := owaspVerificationStatus(v)
 			view.Vulns = append(view.Vulns, owaspVulnView{
-				Title:       html.EscapeString(v.Title),
-				Severity:    html.EscapeString(v.Severity),
-				SeverityCSS: html.EscapeString(strings.ToLower(v.Severity)),
-				Endpoint:    html.EscapeString(v.Endpoint),
-				Description: html.EscapeString(v.Description),
-				Remediation: html.EscapeString(v.Remediation),
-				CVE:         html.EscapeString(v.CVE),
-				CWE:         html.EscapeString(v.CWE),
+				Title:            html.EscapeString(v.Title),
+				Severity:         html.EscapeString(v.Severity),
+				SeverityCSS:      html.EscapeString(strings.ToLower(v.Severity)),
+				Endpoint:         html.EscapeString(v.Endpoint),
+				Description:      html.EscapeString(v.Description),
+				Remediation:      html.EscapeString(v.Remediation),
+				CVE:              html.EscapeString(v.CVE),
+				CWE:              html.EscapeString(v.CWE),
+				Verified:         verified,
+				VerificationText: html.EscapeString(verificationText),
 			})
 		}
 		data.Categories = append(data.Categories, view)
@@ -131,6 +161,9 @@ func buildOWASPReportData(scan *Scan) (*owaspReportData, error) {
 
 	for _, v := range scan.Vulns {
 		data.TotalFindings++
+		if v.Verified {
+			data.VerifiedCount++
+		}
 		switch v.Severity {
 		case "Critical":
 			data.CriticalCount++
@@ -147,6 +180,34 @@ func buildOWASPReportData(scan *Scan) (*owaspReportData, error) {
 	return data, nil
 }
 
+// owaspVerificationStatus derives the display status for a finding from its
+// Phase 20 exploit-verification result. Mirrors the PDF report semantics: a
+// finding is "verified" only when it carries a verification method AND was
+// confirmed, otherwise it is flagged for manual review.
+func owaspVerificationStatus(v Vuln) (bool, string) {
+	switch {
+	case v.Verified && v.VerificationMethod != "":
+		return true, "Verified via " + strings.ToUpper(v.VerificationMethod)
+	case v.VerificationMethod != "":
+		return false, "UNVERIFIED — manual review required (reported via " + strings.ToUpper(v.VerificationMethod) + ")"
+	default:
+		return false, "UNVERIFIED — no verification evidence recorded"
+	}
+}
+
+// normalizeOWASPID canonicalizes an agent-provided OWASP category token to
+// the "A01".."A10" form used by OWASPCategory IDs, tolerating suffixed
+// variants such as "A03:2021". Returns "" when no valid category is present.
+var owaspIDPattern = regexp.MustCompile(`^A(0[1-9]|10)`)
+
+func normalizeOWASPID(s string) string {
+	m := owaspIDPattern.FindString(strings.TrimSpace(strings.ToUpper(s)))
+	if m == "" {
+		return ""
+	}
+	return m
+}
+
 // renderOWASPHTMLReport executes the report template against prepared data.
 func renderOWASPHTMLReport(data *owaspReportData) (string, error) {
 	tmpl := `<!DOCTYPE html>
@@ -161,10 +222,11 @@ func renderOWASPHTMLReport(data *owaspReportData) (string, error) {
         .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; border-radius: 10px; margin-bottom: 30px; }
         .header h1 { margin: 0 0 10px 0; font-size: 2.5em; }
         .header p { margin: 0; opacity: 0.9; }
-        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 20px; margin-bottom: 30px; }
         .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
         .stat-card .number { font-size: 2.5em; font-weight: bold; color: #667eea; }
         .stat-card .label { color: #666; margin-top: 5px; }
+        .stat-card.verified .number { color: #059669; }
         .category { background: white; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; }
         .category-header { background: #f8f9fa; padding: 20px 30px; border-left: 4px solid #667eea; }
         .category-header h2 { margin: 0; color: #333; font-size: 1.5em; }
@@ -173,8 +235,12 @@ func renderOWASPHTMLReport(data *owaspReportData) (string, error) {
         .vuln-list { padding: 20px 30px; }
         .vuln { border-bottom: 1px solid #eee; padding: 20px 0; }
         .vuln:last-child { border-bottom: none; }
-        .vuln-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .vuln-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; }
         .vuln-title { font-size: 1.2em; font-weight: 600; color: #333; }
+        .vuln-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+        .verified { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: 600; }
+        .verified.yes { background: #d1fae5; color: #065f46; }
+        .verified.no { background: #fee2e2; color: #991b1b; }
         .severity { padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 600; text-transform: capitalize; }
         .severity.critical { background: #fee2e2; color: #dc2626; }
         .severity.high { background: #ffedd5; color: #ea580c; }
@@ -199,6 +265,10 @@ func renderOWASPHTMLReport(data *owaspReportData) (string, error) {
             <div class="stat-card">
                 <div class="number">{{.TotalFindings}}</div>
                 <div class="label">Total Findings</div>
+            </div>
+            <div class="stat-card verified">
+                <div class="number">{{.VerifiedCount}}</div>
+                <div class="label">Verified</div>
             </div>
             <div class="stat-card">
                 <div class="number">{{.CriticalCount}}</div>
@@ -229,7 +299,10 @@ func renderOWASPHTMLReport(data *owaspReportData) (string, error) {
                     <div class="vuln">
                         <div class="vuln-header">
                             <div class="vuln-title">{{.Title}}</div>
-                            <span class="severity {{.SeverityCSS}}">{{.Severity}}</span>
+                            <div class="vuln-badges">
+                                <span class="verified {{if .Verified}}yes{{else}}no{{end}}">{{if .Verified}}&#10003; {{.VerificationText}}{{else}}&#9888; {{.VerificationText}}{{end}}</span>
+                                <span class="severity {{.SeverityCSS}}">{{.Severity}}</span>
+                            </div>
                         </div>
                         {{if .Description}}
                         <div class="vuln-body">{{.Description}}</div>
@@ -246,6 +319,38 @@ func renderOWASPHTMLReport(data *owaspReportData) (string, error) {
                     {{end}}
                 {{else}}
                     <div class="no-findings">&#10003; No findings for this category</div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
+        {{if .UnmatchedVulns}}
+        <div class="category">
+            <div class="category-header">
+                <h2>Other Findings <span class="id">Uncategorized</span><span class="count">{{len .UnmatchedVulns}} finding(s)</span></h2>
+            </div>
+            <div class="vuln-list">
+                {{range .UnmatchedVulns}}
+                <div class="vuln">
+                    <div class="vuln-header">
+                        <div class="vuln-title">{{.Title}}</div>
+                        <div class="vuln-badges">
+                            <span class="verified {{if .Verified}}yes{{else}}no{{end}}">{{if .Verified}}&#10003; {{.VerificationText}}{{else}}&#9888; {{.VerificationText}}{{end}}</span>
+                            <span class="severity {{.SeverityCSS}}">{{.Severity}}</span>
+                        </div>
+                    </div>
+                    {{if .Description}}
+                    <div class="vuln-body">{{.Description}}</div>
+                    {{end}}
+                    <div class="vuln-meta">
+                        {{if .Endpoint}}Endpoint: {{.Endpoint}} | {{end}}
+                        {{if .CVE}}CVE: {{.CVE}} | {{end}}
+                        {{if .CWE}}CWE: {{.CWE}}{{end}}
+                    </div>
+                    {{if .Remediation}}
+                    <div class="vuln-meta">Recommendation: {{.Remediation}}</div>
+                    {{end}}
+                </div>
                 {{end}}
             </div>
         </div>
